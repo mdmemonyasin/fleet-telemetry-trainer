@@ -12,7 +12,8 @@ docker compose version >/dev/null 2>&1 && pass "docker compose" || bad "docker c
 command -v git >/dev/null && pass "git" || bad "git not installed"
 command -v python3 >/dev/null && pass "python3 $(python3 -c 'import sys;print(sys.version.split()[0])')" || bad "python3 missing (needed for the simulator)"
 if [ -d java ] && [ "${STACK:-}" != "python" ]; then
-  command -v java >/dev/null && java -version 2>&1 | grep -qE 'version "(17|18|19|20|21|22|23|24|25)' && pass "java 17+" || bad "Java 17+ not found (Java track only)"
+  jv=$(java -version 2>&1 | awk -F'"' '/version/ {print $2; exit}' | cut -d. -f1)
+  [ -n "$jv" ] && [ "$jv" -ge 17 ] 2>/dev/null && pass "java $jv" || bad "Java 17+ not found (Java track only)"
 fi
 
 echo "== Containers"

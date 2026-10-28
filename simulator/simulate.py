@@ -124,8 +124,11 @@ def main():
             print(f"{mark}{code}  {why:24s} {body}")
         print("\nExpected: every line 400. Anything else means validation is missing.")
     elif a.mode == "overspeed":
-        v = fleet[0]
+        # Use the last active vehicle (other modes use the first N) and end the run at "now", so pings
+        # from an earlier normal/duplicate run can't be newer than this run and break it up.
+        v = Vehicle(load_vehicles(10**6)[-1], rnd)
         speeds = [60, 105, 112, 118, 121, 125, 80]
+        start = dt.datetime.now(dt.timezone.utc).replace(microsecond=0) - dt.timedelta(seconds=5 * (len(speeds) - 1))
         for i, s in enumerate(speeds):
             code, _ = post(a.api, v.ping(start + dt.timedelta(seconds=5 * i), speed=s))
             codes[code] += 1

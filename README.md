@@ -19,8 +19,8 @@ Pick **one** track: `java/` (Spring Boot 3, Java 17) or `python/` (FastAPI, Pyth
 
 ## 0. Before Day 1 (pre-work — do this at home, the images are ~1.5 GB)
 
-1. Install **Docker Desktop**, **git**, **Python 3.10+** (needed for the simulator on both tracks).
-   Java track: **JDK 17+** and **Maven** (or IntelliJ IDEA, which bundles Maven).
+1. Install **Docker Desktop**, **git**, **Python 3.10+** (needed for the simulator on both tracks; macOS ships 3.9 as `python3`, so install a newer one, e.g. `brew install python@3.12`).
+   Java track: **JDK 17+** (21 LTS recommended) and **Maven** (or IntelliJ IDEA, which bundles Maven).
 2. Clone this repo, then from the repo root:
    ```bash
    docker compose up -d          # Kafka, Kafka UI, Postgres (+ seed data)

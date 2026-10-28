@@ -5,7 +5,7 @@ Students clone the separate **starter** repo. Don't share this one with them bef
 
 | Ref | What it is |
 |---|---|
-| tag `starter` | exactly what students get |
+| tag `starter` | the original student kit (the starter repo's `main` adds later fixes to README, `check_env.sh`, the simulator and `pom.xml`) |
 | `main` / tag `solution` | reference solution, both stacks (M1–M3 complete, tests) |
 | `incident/inj1-poison-crashloop` | INJ-1 code change (consumer can't survive a bad message) |
 | `incident/inj2-odometer-double-conversion` | INJ-2 |
@@ -66,27 +66,27 @@ The IC must: (1) state impact (who / what / since when), (2) mitigate before roo
 ### INJ-1 — Poison message (P0, data freshness SLA)
 - **Inject:** pod's own system: `./trainer/inject_poison.sh 3`. Reference solution: `git checkout incident/inj1-poison-crashloop` first (the solution's DLQ would otherwise handle it correctly — which is itself a good debrief point).
 - **Symptom to announce:** "Customers report vehicle locations are stale — some fleets only."
-- **Evidence:** `./scripts/kafka.sh lag` → LAG growing on 1–3 partitions only. Python: consumer crashes with a pydantic ValidationError and, when restarted, crashes again on the same offset. Java: log shows the same offset retried every second forever.
+- **Evidence:** Java: log shows the same offset retried every second forever, and `./scripts/kafka.sh lag` shows LAG growing on 1–3 partitions only. Python: the consumer process crashes with a pydantic ValidationError (crashing again on restart), so LAG grows on **every** partition that gets traffic — the "some fleets only" symptom is Java-specific; on Python it's "all fleets stale".
 - **Root cause:** schema-v2 message (`speed` is an object, no `speed_kmph`) — no DLQ / infinite retry → partition blocked → every VIN hashed to that partition stops updating.
 - **Mitigate:** skip / park the bad offset — stop the consumer, then
   `docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --group telemetry-writer --reset-offsets --topic telemetry.raw:<P> --to-offset <N+1> --execute`
-  (P/N from the error log) — or deploy DLQ handling; restart and confirm lag drains. Skipping = data loss for that one event; parking to a DLQ doesn't lose it — discuss.
+  (Java: P/N from the error log. Python: the traceback doesn't print them — the poison partitions are the ones whose CURRENT-OFFSET in `./scripts/kafka.sh lag` points at a v2 message; check with `docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic telemetry.raw --partition <P> --offset <N> --max-messages 1`) — or deploy DLQ handling; restart and confirm lag drains. Skipping = data loss for that one event; parking to a DLQ doesn't lose it — discuss.
 - **Prevent:** DLQ + alert on DLQ rate; per-partition lag alert (not average); schema registry / versioned contract; never "retry forever" on non-retryable errors.
 - **Model update:** *"P0 — Since 14:52, location data is delayed for vehicles on 3 of 12 partitions (~25% of vehicles). Cause: a malformed message from a new OEM firmware blocked processing. Mitigated 15:05 by parking it to the DLQ; backlog draining, normal by ~15:10. Next update 15:15."*
 - **Debrief:** why key by VIN made this "some fleets only"; at-least-once and offset commits.
 
 ### INJ-2 — Odometer double conversion (P1 → P0 once billing uses it)
-- **Inject:** `git checkout incident/inj2-odometer-double-conversion` (commit message: "OEM-B feeds report miles -> convert to km (FLT-231)").
+- **Inject:** `git checkout incident/inj2-odometer-double-conversion` (commit message: "FLT-231: OEM-B feeds report miles, convert to km").
 - **Symptom:** "A lender says ~1/4 of their OEM-B vehicles show odometer ~60% too high since the last deploy."
-- **Evidence:** `SELECT source_oem, avg(odometer_km) ... GROUP BY source_oem` / compare a VIN before and after deploy time; `git log -p` on normalize; the unit test `test_miles_converted_once` / `milesConvertedOnce` **fails** on this branch (someone merged with red CI).
+- **Evidence:** `SELECT source_oem, avg(odometer_km) ... GROUP BY source_oem` / compare a VIN before and after deploy time; `git log -p` on normalize; the unit tests `test_miles_converted_once` + `test_km_is_unchanged` / `milesConvertedOnce` + `kmUnchanged_andVinUpperCased` **fail** on this branch (the km test fails too because its fixture is an OEM-B device — the bug also hits OEM-B devices that report km) (someone merged with red CI).
 - **Root cause:** OEM-B adapter converts miles→km and the normaliser converts again because `odometer_unit` is still `mi` (×1.609²).
 - **Mitigate:** revert the commit; pause any downstream export/billing.
 - **Fix data:** this becomes **Day-3 SQL ticket U5** (backfill: divide by 1.609344 for OEM-B rows since the deploy time — idempotently).
 - **Prevent:** per-OEM unit tests, invariant check (odometer can't jump > 2,000 km/day), CI must block merges.
 
 ### INJ-3 — Slow fleet API (P1, customer dashboard SLA)
-- **Inject:** `git checkout incident/inj3-slow-fleet-api` (commit: "VIN match is case-insensitive (FLT-482)").
-- **Symptom:** "MegaFleet's dashboard (`GET /v1/fleets/1/latest`) went from instant to 2+ seconds; p99 alarms."
+- **Inject:** `git checkout incident/inj3-slow-fleet-api` (commit: "FLT-482: case-insensitive VIN match for fleet view").
+- **Symptom:** "MegaFleet's dashboard (`GET /v1/fleets/1/latest`) went from instant to 2+ seconds; p99 alarms." (Expect roughly 20–30× slower than `main` — about 0.7 s on a fast laptop, 2+ s on older ones; always compare against `/fleets/9/latest` and against `main`.)
 - **Evidence:** `time curl localhost:8080/v1/fleets/1/latest` vs `/fleets/9/latest`; enable SQL logging or `pg_stat_statements`; `EXPLAIN ANALYZE ... WHERE upper(vin) = upper('...')` → **Seq Scan** on ~56k rows, ×78 vehicles.
 - **Root cause:** N+1 queries (one per vehicle) **and** a non-sargable predicate (`upper(vin)`) that can't use the `(vin, ts_utc)` index.
 - **Fix:** one `DISTINCT ON` query (see `solution`); normalise VIN case at ingest instead of in the query. Measure before/after.
@@ -95,7 +95,7 @@ The IC must: (1) state impact (who / what / since when), (2) mitigate before roo
 ### INJ-4 — Bad config deploy (P0, total outage)
 - **Inject:** `git checkout incident/inj4-bad-db-config` and restart the app (or on a pod's own system: restart it with `DB_HOST=pg-primary.fleet.internal`).
 - **Symptom:** "All API calls failing since 16:02."
-- **Evidence:** `/health` → 503 `db: down`; logs show unknown host / connection timeout; `git log` shows "new primary after migration (FLT-560)" at 16:01.
+- **Evidence:** `/health` → 503 `db: down`; logs show unknown host / connection timeout; `git log` shows "FLT-560: point services at new DB primary" just before the outage.
 - **Mitigate:** roll back the config / redeploy previous version — **before** investigating DNS.
 - **Prevent:** config validation at startup, canary deploy, readiness probe that fails the rollout.
 - **Communication focus:** this one is about speed of rollback and a clear update, not deep debugging.
