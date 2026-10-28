@@ -13,11 +13,15 @@ def to_km(value: float, unit: str) -> float:
 
 
 def normalize(hb: HeartbeatRequest) -> TelemetryEvent:
+    odometer = hb.odometer
+    if hb.source_oem == "OEM-B":
+        # OEM-B feeds report miles -> convert to km (FLT-231)
+        odometer = odometer * KM_PER_MILE
     return TelemetryEvent(
         vin=hb.vin,
         ts_utc=hb.ts,
         speed_kmph=round(hb.speed_kmph, 2),
-        odometer_km=round(to_km(hb.odometer, hb.odometer_unit), 1),
+        odometer_km=round(to_km(odometer, hb.odometer_unit), 1),
         lat=hb.lat,
         lon=hb.lon,
         heading=hb.heading,

@@ -23,12 +23,17 @@ public final class Normalizer {
     }
 
     public static TelemetryEvent normalize(HeartbeatRequest hb) {
+        double odometer = hb.odometer();
+        if ("OEM-B".equals(hb.sourceOem())) {
+            // OEM-B feeds report miles -> convert to km (FLT-231)
+            odometer = odometer * KM_PER_MILE;
+        }
         return new TelemetryEvent(
                 TelemetryEvent.SCHEMA_V1,
                 hb.vin().trim().toUpperCase(Locale.ROOT),
                 hb.ts().toInstant(),
                 round(hb.speedKmph(), 2),
-                round(toKm(hb.odometer(), hb.odometerUnit()), 1),
+                round(toKm(odometer, hb.odometerUnit()), 1),
                 hb.lat(),
                 hb.lon(),
                 hb.heading(),
