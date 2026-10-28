@@ -1,23 +1,79 @@
-"""All SQL lives here. Parameterised queries only — never build SQL with f-strings from input.
-
-Example of the style to follow:
-"""
+"""All SQL lives here. Parameterised queries only (never f-strings with user input)."""
+import datetime as dt
+import json
 from typing import Optional
 
 from psycopg.rows import dict_row
 
 from app.db import get_pool
+from app.models import TelemetryEvent
+
+INSERT_TELEMETRY = """
+INSERT INTO telemetry (vin, ts_utc, speed_kmph, odometer_km, lat, lon, heading, soc_pct, ignition, source_oem)
+VALUES (%(vin)s, %(ts_utc)s, %(speed_kmph)s, %(odometer_km)s, %(lat)s, %(lon)s, %(heading)s, %(soc_pct)s, %(ignition)s, %(source_oem)s)
+ON CONFLICT (vin, ts_utc) DO NOTHING
+"""
 
 
-def vehicle_exists(vin: str) -> bool:
+def insert_telemetry(conn, e: TelemetryEvent) -> bool:
+    """Idempotent insert. Returns True if a new row was written, False if it was a duplicate."""
+    cur = conn.execute(INSERT_TELEMETRY, e.model_dump())
+    return cur.rowcount == 1
+
+
+def recent_speeds(conn, vin: str, limit: int = 50):
+    rows = conn.execute(
+        "SELECT ts_utc, speed_kmph FROM telemetry WHERE vin = %s ORDER BY ts_utc DESC LIMIT %s", (vin, limit)
+    ).fetchall()
+    return [(r[0], float(r[1])) for r in rows]
+
+
+def insert_alert(conn, vin: str, alert_type: str, started_at: dt.datetime, details: dict) -> bool:
+    cur = conn.execute(
+        "INSERT INTO alerts (vin, type, started_at, details) VALUES (%s, %s, %s, %s::jsonb) "
+        "ON CONFLICT (vin, type, started_at) DO NOTHING",
+        (vin, alert_type, started_at, json.dumps(details)),
+    )
+    return cur.rowcount == 1
+
+
+def latest_for_vin(vin: str) -> Optional[dict]:
     with get_pool().connection() as conn:
-        return conn.execute("SELECT 1 FROM vehicles WHERE vin = %s", (vin,)).fetchone() is not None
+        conn.row_factory = dict_row
+        return conn.execute(
+            "SELECT vin, ts_utc, speed_kmph, odometer_km, lat, lon, heading, soc_pct, ignition, source_oem "
+            "FROM telemetry WHERE vin = %s ORDER BY ts_utc DESC LIMIT 1", (vin,)
+        ).fetchone()
 
 
-# TODO M2: insert_telemetry(conn, event) -> bool
-#   - must be idempotent: the same (vin, ts_utc) delivered twice must not create two rows
-#     (look at the constraints on the telemetry table in db/init/01_schema.sql)
-#   - return True if a new row was written
-#
-# TODO M3: latest_for_vin, telemetry_range (keyset pagination), alerts_for_vin, fleet_latest (ONE query)
-#   - check your range query with EXPLAIN in psql — does it use the (vin, ts_utc) index?
+def telemetry_range(vin: str, start: dt.datetime, end: dt.datetime, limit: int, after: Optional[dt.datetime]) -> list:
+    """Keyset pagination on ts_utc: stable and fast with the (vin, ts_utc) index (no OFFSET)."""
+    with get_pool().connection() as conn:
+        conn.row_factory = dict_row
+        return conn.execute(
+            "SELECT vin, ts_utc, speed_kmph, odometer_km, lat, lon, heading, soc_pct, ignition, source_oem "
+            "FROM telemetry WHERE vin = %s AND ts_utc >= %s AND ts_utc < %s AND ts_utc > %s "
+            "ORDER BY ts_utc ASC LIMIT %s",
+            (vin, start, end, after or dt.datetime(1970, 1, 1, tzinfo=dt.timezone.utc), limit),
+        ).fetchall()
+
+
+def alerts_for_vin(vin: str, limit: int = 50) -> list:
+    with get_pool().connection() as conn:
+        conn.row_factory = dict_row
+        return conn.execute(
+            "SELECT id, vin, type, started_at, details, created_at FROM alerts WHERE vin = %s "
+            "ORDER BY started_at DESC LIMIT %s", (vin, limit)
+        ).fetchall()
+
+
+def fleet_latest(customer_id: int) -> list:
+    """Latest position of every active vehicle of a customer — ONE query (no N+1)."""
+    with get_pool().connection() as conn:
+        conn.row_factory = dict_row
+        return conn.execute(
+            "SELECT DISTINCT ON (t.vin) t.vin, t.ts_utc, t.speed_kmph, t.lat, t.lon "
+            "FROM vehicles v JOIN telemetry t ON t.vin = v.vin "
+            "WHERE v.customer_id = %s AND v.status = 'active' "
+            "ORDER BY t.vin, t.ts_utc DESC", (customer_id,)
+        ).fetchall()

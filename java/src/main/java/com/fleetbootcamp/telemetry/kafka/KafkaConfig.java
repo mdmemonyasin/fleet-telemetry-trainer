@@ -1,13 +1,30 @@
 package com.fleetbootcamp.telemetry.kafka;
 
+import com.fleetbootcamp.telemetry.Topics;
+import com.fleetbootcamp.telemetry.kafka.EventParser.InvalidEventException;
+import org.apache.kafka.common.TopicPartition;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
+import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.util.backoff.FixedBackOff;
 
-/**
- * TODO M2: define a DefaultErrorHandler @Bean here. Spring Boot plugs it into the listener automatically.
- *   - unparseable / wrong-schema messages: no retry, publish to telemetry.dlq (DeadLetterPublishingRecoverer)
- *   - other errors (DB briefly down): a few retries with a back-off, then DLQ
- *   Without this, Spring retries 10 times and then just logs and skips — the message is silently lost.
- */
 @Configuration
 public class KafkaConfig {
+
+    /**
+     * Spring Boot plugs this into the listener container automatically.
+     * - InvalidEventException (bad JSON / unknown schema): no retry, straight to telemetry.dlq
+     * - anything else (e.g. DB briefly down): retry 3 times, 1s apart, then telemetry.dlq
+     * Either way one bad message can never block its partition.
+     */
+    @Bean
+    public DefaultErrorHandler kafkaErrorHandler(KafkaTemplate<String, String> template) {
+        DeadLetterPublishingRecoverer toDlq =
+                new DeadLetterPublishingRecoverer(template, (rec, ex) -> new TopicPartition(Topics.DLQ, -1));
+        DefaultErrorHandler handler = new DefaultErrorHandler(toDlq, new FixedBackOff(1000L, 3L));
+        handler.addNotRetryableExceptions(InvalidEventException.class);
+        return handler;
+    }
 }

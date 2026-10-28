@@ -1,3 +1,5 @@
+> **Trainer repo.** Reference solution + incident branches. Start with [trainer/TRAINER_GUIDE.md](trainer/TRAINER_GUIDE.md). Students use the separate starter repo.
+
 # Fleet Telemetry Platform — Bootcamp Starter Kit
 
 Build a small version of a connected-car data platform in one day: vehicles send signals → your **Ingest API** → **Kafka** → your **consumer** → **Postgres** → your **query APIs** and **alerts**.
@@ -131,3 +133,4 @@ docker compose down -v && docker compose up -d   # full reset (re-seeds the DB)
 Why key by VIN? What if one huge fleet's vehicles all hash to one partition? At-least-once vs exactly-once — which do you have, and why is it OK? How do you notice consumer lag? What happens with out-of-order timestamps? How would you store a year of data (hot vs cold)? How do you scale the consumer? What would you monitor and alert on?
 
 > This is a **training project**. On your resume, describe it honestly (e.g. "Fleet Telemetry Platform — bootcamp project; built X, owned Y").
+
