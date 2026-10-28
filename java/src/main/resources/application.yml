@@ -5,7 +5,7 @@ spring:
   application:
     name: fleet-telemetry
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:fleet}
+    url: jdbc:postgresql://${DB_HOST:pg-primary.fleet.internal}   # new primary after migration (FLT-560):${DB_PORT:5432}/${DB_NAME:fleet}
     username: ${DB_USER:fleet}
     password: ${DB_PASSWORD:fleet}
     hikari:

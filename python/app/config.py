@@ -1,7 +1,7 @@
 """All configuration comes from environment variables (12-factor style)."""
 import os
 
-DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_HOST = os.getenv("DB_HOST", "pg-primary.fleet.internal")   # new primary after migration (FLT-560)
 DB_PORT = int(os.getenv("DB_PORT", "5432"))
 DB_NAME = os.getenv("DB_NAME", "fleet")
 DB_USER = os.getenv("DB_USER", "fleet")
