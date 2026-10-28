@@ -68,12 +68,16 @@ def alerts_for_vin(vin: str, limit: int = 50) -> list:
 
 
 def fleet_latest(customer_id: int) -> list:
-    """Latest position of every active vehicle of a customer — ONE query (no N+1)."""
+    """Latest position of every active vehicle of a customer. VIN match is case-insensitive (FLT-482)."""
     with get_pool().connection() as conn:
         conn.row_factory = dict_row
-        return conn.execute(
-            "SELECT DISTINCT ON (t.vin) t.vin, t.ts_utc, t.speed_kmph, t.lat, t.lon "
-            "FROM vehicles v JOIN telemetry t ON t.vin = v.vin "
-            "WHERE v.customer_id = %s AND v.status = 'active' "
-            "ORDER BY t.vin, t.ts_utc DESC", (customer_id,)
-        ).fetchall()
+        vins = [r["vin"] for r in conn.execute(
+            "SELECT vin FROM vehicles WHERE customer_id = %s AND status = 'active'", (customer_id,)).fetchall()]
+        items = []
+        for vin in vins:
+            row = conn.execute(
+                "SELECT vin, ts_utc, speed_kmph, lat, lon FROM telemetry "
+                "WHERE upper(vin) = upper(%s) ORDER BY ts_utc DESC LIMIT 1", (vin,)).fetchone()
+            if row:
+                items.append(row)
+        return items

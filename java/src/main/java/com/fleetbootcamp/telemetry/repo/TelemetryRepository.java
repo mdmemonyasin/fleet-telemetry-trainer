@@ -73,12 +73,16 @@ public class TelemetryRepository {
                 vin, limit);
     }
 
-    /** Latest row for every active vehicle of a customer in ONE query (no N+1). */
+    /** Latest row for every active vehicle of a customer. VIN match is case-insensitive (FLT-482). */
     public List<TelemetryView> fleetLatest(int customerId) {
-        return jdbc.query("SELECT DISTINCT ON (t.vin) t.vin, t.ts_utc, t.speed_kmph, t.odometer_km, t.lat, t.lon, "
-                + "t.heading, t.soc_pct, t.ignition, t.source_oem "
-                + "FROM vehicles v JOIN telemetry t ON t.vin = v.vin "
-                + "WHERE v.customer_id = ? AND v.status = 'active' ORDER BY t.vin, t.ts_utc DESC", VIEW, customerId);
+        List<String> vins = jdbc.queryForList(
+                "SELECT vin FROM vehicles WHERE customer_id = ? AND status = 'active'", String.class, customerId);
+        List<TelemetryView> items = new java.util.ArrayList<>();
+        for (String vin : vins) {
+            items.addAll(jdbc.query("SELECT " + COLS + " FROM telemetry WHERE upper(vin) = upper(?) "
+                    + "ORDER BY ts_utc DESC LIMIT 1", VIEW, vin));
+        }
+        return items;
     }
 
     private static OffsetDateTime utc(Instant i) {
