@@ -120,6 +120,22 @@ Dockerfile for your service + update this README with: your HLD diagram, schema,
 
 ---
 
+## Day 3 — SQL and data-fix practice
+
+On the **morning of Day 3**, before the first session, run from the repo root (with `docker compose up -d` running):
+```bash
+./scripts/day3_setup.sh
+```
+It keeps your Day 2 data and adds what Day 3 needs: recent readings for the time-based questions, a few planted data problems, and your tickets. Running it again is safe (it says "already applied" and changes nothing).
+
+- **Tickets** are in the `ops_tickets` table: `docker compose exec postgres psql -U fleet -d fleet -c 'select id, title, body from ops_tickets order by id'`
+- **Files** are in `data/day3/`: `transfer_cityride_to_autofin.csv` (ticket FIX-3) and `app.log` (log task: count errors per service in the hour ending at the last line, `2026-10-27T10:00:00Z`).
+- Follow the safe steps for every fix: SELECT and count first, back up, change inside a transaction, check, then commit.
+
+`./scripts/day3_setup.sh --reset` rebuilds the database from scratch and then applies the Day 3 setup. **It deletes your Day 2 data**, so use it only if your database is broken.
+
+---
+
 ## 4. Useful commands
 ```bash
 ./scripts/kafka.sh consume telemetry.raw     # see messages + partition + key

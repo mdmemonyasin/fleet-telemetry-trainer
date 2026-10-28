@@ -13,6 +13,9 @@ Students clone the separate **starter** repo. Don't share this one with them bef
 | `incident/inj4-bad-db-config` | INJ-4 |
 | `trainer/inject_poison.sh` | publishes schema-v2 "poison" messages straight to Kafka |
 | `tools/gen_seed.py` | regenerates `db/init/02_seed.sql` + `data/vehicles.csv` (seed 42) |
+| `scripts/day3_setup.sh` + `db/day3/` | Day 3 setup students run (also in the starter repo) |
+| `trainer/day3_answers.sql`, `trainer/day3_fix3_transfer.py` | Day 3 answer key |
+| `tools/gen_day3_log.py` | regenerates `data/day3/app.log` + the FIX-3 CSV |
 
 ---
 
@@ -99,6 +102,32 @@ The IC must: (1) state impact (who / what / since when), (2) mitigate before roo
 - **Mitigate:** roll back the config / redeploy previous version — **before** investigating DNS.
 - **Prevent:** config validation at startup, canary deploy, readiness probe that fails the rollout.
 - **Communication focus:** this one is about speed of rollback and a clear update, not deep debugging.
+
+---
+
+## Day 3 — SQL and data-fix practice
+
+**Before the first session:** every student runs `./scripts/day3_setup.sh` from the repo root (Docker running). It keeps their Day 2 data, is safe to run twice ("already applied"), and prints a summary. Only use `--reset` for a broken database: it deletes Day 2 data. Check one laptop: `select count(*) from ops_tickets` must be 6.
+
+**Answer key:** `trainer/day3_answers.sql`: all 12 SQL questions and FIX-1 to FIX-6 written the safe way, with the expected result after `./scripts/day3_setup.sh --reset` on a fresh database. Run it on your own copy:
+`docker compose exec -T postgres psql -U fleet -d fleet -v ON_ERROR_STOP=1 -f - < trainer/day3_answers.sql` (safe to re-run). Answers marked *(time)* depend on the clock (today's date, or the time the setup ran), so a student's number can differ a little: check their query, not just the number.
+Script answers: `trainer/day3_fix3_transfer.py` (FIX-3 from the CSV, `--dry-run`, one transaction) and the `awk` one-liner for the log task at the end of the answer key.
+
+**What the setup plants (all picked by VIN/id order, so every laptop is the same):**
+
+| Where | What | The trap |
+|---|---|---|
+| all seed telemetry | moved so the newest reading is 1 hour old; speeds replaced by fixed values | none, it just makes "last 24 hours" / "today" questions and SQL 12 work the same everywhere |
+| SQL 2 | 8 active vehicles (2 each from customers 7–10) with no readings in the last 24 hours | leaving out `status = 'active'` adds the 12 deprovisioned vehicles |
+| FIX-1 | ticket lists 5 VINs "for customer 4" | the 3rd VIN belongs to Prime Auto Dealers (customer 10): don't deactivate it, ask the requester |
+| FIX-2 | FleetCo, by name only | 1 cancelled + 2 expired rows to skip, 1 active row with NULL `end_date` (open-ended) |
+| FIX-3 | `data/day3/transfer_cityride_to_autofin.csv`, 28 rows | 2 VINs that don't exist, 1 duplicated row; 25 vehicles to move |
+| FIX-4 | 17 vehicles with duplicate devices (18 extra rows) | some duplicates have `last_seen_at` NULL: needs a NULLS LAST + tie-break rule |
+| FIX-5 | OEM-B `odometer_km` × 1.609344 since the time in the ticket (3 hours before setup) | running the fix twice divides twice: guard on the backup table / still-wrong rows |
+| FIX-6 | GeoBox firmware < 3.2: last 6 hours stored 5:30 ahead (some in the future) | a plain shift can hit the unique (vin, ts_utc) constraint; must be safe to re-run; only the 21 non-OEM-B vehicles are affected (so FIX-5 and FIX-6 never touch the same rows) |
+| log task | `data/day3/app.log`, 2,000 lines, fixed times 08:00–10:00Z on 2026-10-27 | lines without a vin and a few malformed lines; "last hour" means the hour ending at the last line |
+
+Files for Day 3 are regenerated with `python3 tools/gen_day3_log.py .` (deterministic); commit the output to both repos.
 
 ---
 
