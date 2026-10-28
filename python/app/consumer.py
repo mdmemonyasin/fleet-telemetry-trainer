@@ -77,12 +77,8 @@ def run() -> None:
                 if msg.error().code() != KafkaError._PARTITION_EOF:
                     log.error("kafka error: %s", msg.error())
                 continue
-            try:
-                event = parse(msg.value())
-            except (ValueError, ValidationError) as e:          # bad JSON or wrong schema -> park it, keep going
-                send_to_dlq(publisher, msg, e)
-                consumer.commit(message=msg, asynchronous=False)
-                continue
+            # Fail fast: never silently drop an event we can't read (FLT-517)
+            event = parse(msg.value())
             with pool.connection() as conn:                      # one transaction per message
                 new = process(conn, event, publisher)
             consumer.commit(message=msg, asynchronous=False)     # commit offset only after DB commit

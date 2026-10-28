@@ -21,10 +21,7 @@ public class KafkaConfig {
      */
     @Bean
     public DefaultErrorHandler kafkaErrorHandler(KafkaTemplate<String, String> template) {
-        DeadLetterPublishingRecoverer toDlq =
-                new DeadLetterPublishingRecoverer(template, (rec, ex) -> new TopicPartition(Topics.DLQ, -1));
-        DefaultErrorHandler handler = new DefaultErrorHandler(toDlq, new FixedBackOff(1000L, 3L));
-        handler.addNotRetryableExceptions(InvalidEventException.class);
-        return handler;
+        // FLT-517: never drop data — keep retrying until the event is processed.
+        return new DefaultErrorHandler(new FixedBackOff(1000L, FixedBackOff.UNLIMITED_ATTEMPTS));
     }
 }
